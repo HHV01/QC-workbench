@@ -24,7 +24,7 @@ const views={rd:rdProjects,'rd-report':rdReport,reports};
 const subtitles={
  rd:'Theo dõi dự án, QC phụ trách, môi trường và tài liệu kiểm thử.',
  'rd-report':'Theo dõi coverage và mức đạt mục tiêu từng dự án.',
- reports:'So sánh coverage từng tuần với mục tiêu và xác định các dự án cần theo dõi.'
+ reports:'Báo cáo kết quả từng tuần, thay đổi so với tuần trước và việc tiếp theo.'
 };
 function render(){
  const section=pages.find(r=>r[0]===page);
@@ -270,6 +270,39 @@ function weeklyDelta(current,previous){
  const delta=Math.round((current-previous)*100)/100;
  return (delta>0?'+':'')+rdFormat(delta)+' đpt';
 }
+function weeklyNarrative(project,key){
+ const n=Number(key.slice(-1)),current=weeklyCoverage(project,key);
+ const previous=n>1?weeklyCoverage(project,'week'+(n-1)):null;
+ const pct=value=>rdFormat(value)+'%';
+ let progress;
+ if(project.conflict)progress='Số liệu dự án cần đối soát trước khi chốt tiến độ.';
+ else if(current===null)progress='Chưa chốt coverage tuần '+n+'; chưa đủ dữ liệu để kết luận kết quả trong tuần.';
+ else if(n===1)progress='Tuần 1 ghi nhận coverage '+pct(current)+', làm mốc theo dõi cho các tuần tiếp theo.';
+ else if(previous===null)progress='Tuần '+n+' ghi nhận coverage '+pct(current)+'; tuần '+(n-1)+' chưa có số liệu nên chưa xác định được mức thay đổi.';
+ else {
+  const delta=Math.round((current-previous)*100)/100;
+  progress='Coverage '+(delta>0?'tăng':delta<0?'giảm':'giữ nguyên')+' từ '+pct(previous)+' lên '+pct(current)+(delta?' ('+weeklyDelta(current,previous)+')':'')+'.';
+ }
+ if(current!==null&&!project.conflict){
+  const milestone=[20,40,60,80][n-1];
+  progress+=' '+(current>=milestone?'Đã đạt':'Chưa đạt')+' mốc theo dõi tuần '+n+' là '+milestone+'%.';
+ }
+ const b=project.baseline,total=rdNumber(b.total),auto=rdNumber(b.auto);
+ let cumulative='';
+ if(!project.conflict&&total>0&&auto!==null){
+  cumulative='Lũy kế hiện tại: '+rdFormat(auto)+'/'+rdFormat(total)+' testcase automation';
+  if(auto<=total)cumulative+=', còn '+rdFormat(total-auto)+' testcase chưa automation';
+  cumulative+='; tỷ lệ trên Sheet: '+rdDisplay(b.coverage)+'.';
+  if(rdCoverageMismatch(project))cumulative+=' Tỷ lệ chưa khớp số case, cần đối soát.';
+ }
+ const tasks=[];
+ if(project.conflict||rdCoverageMismatch(project))tasks.push('Đối soát số case và công thức tỷ lệ');
+ if(current===null)tasks.push('Chốt Coverage tuần '+n);
+ if(n>1&&previous===null)tasks.push('Bổ sung Coverage tuần '+(n-1)+' để so sánh');
+ if(current!==null&&current<80)tasks.push('Tiếp tục triển khai hướng tới mốc 80%');
+ if(rdKnown(b.next))tasks.push(b.next);
+ return {progress,cumulative,next:tasks.join('; ')||'Chưa cập nhật kế hoạch tiếp theo'};
+}
 function reports(){
  const projects=rdFiltered();
  const allWeeks=['week1','week2','week3','week4'];
@@ -304,7 +337,20 @@ function reports(){
   rdGoalLabel,status,delta,gap,rdVal(project,'next')
  ]);
  setExport(headers,rows);
- return rdFilters(true)+summary+panel('Kết quả theo tuần',
+ const narrative=key=>{
+  const main=projects.filter(p=>/^(becawork|becafsm)$/i.test(p.baseline.name));
+  const other=projects.filter(p=>!main.includes(p));
+  const list=items=>items.length?'<ul>'+items.map(p=>{
+   const text=weeklyNarrative(p,key);
+   return '<li><strong>'+esc(p.baseline.name)+':</strong> '+esc(text.progress)+(text.cumulative?'<p>'+esc(text.cumulative)+'</p>':'')+'</li>';
+  }).join('')+'</ul>':'<p>Không có dự án trong bộ lọc.</p>';
+  return panel('Báo cáo tiến độ triển khai Automation Test · '+label(key),
+   '<article class="weekly-report"><p>Báo cáo theo dữ liệu '+esc(rdData.date)+'. So sánh Coverage '+esc(label(key))+(key==='week1'?' làm mốc ban đầu.':' với Tuần '+(Number(key.slice(-1))-1)+'.')+'</p>'+
+   '<h3>1. Hai dự án chính</h3>'+list(main)+'<h3>2. Các dự án khác</h3>'+list(other)+
+   '<h3>3. Việc tiếp theo</h3><ul>'+projects.map(p=>'<li><strong>'+esc(p.baseline.name)+':</strong> '+esc(weeklyNarrative(p,key).next)+'.</li>').join('')+'</ul>'+
+   '<p class="compact">Số testcase lũy kế là số hiện tại, không phải số đã làm riêng trong tuần. Chưa có lịch sử số case và phạm vi từng tuần để tính số case tăng thêm hoặc xác nhận phạm vi không đổi.</p></article>');
+ };
+ return rdFilters(true)+summary+weeks.map(narrative).join('')+panel('Kết quả theo tuần',
   table(['Kỳ báo cáo','Đã cập nhật','Thiếu số liệu / đối soát','Dưới 80%','Đạt 80–90%','Vượt 90%'],stats.map(row=>row.map(esc))))+
   panel('Tiến độ từng dự án · '+focusTitle,
    '<p class="pad compact">Đánh giá dùng coverage đã ghi trong tuần. Chênh lệch dùng hai tuần liền kề có số liệu, tính bằng điểm phần trăm (đpt).</p>'+
