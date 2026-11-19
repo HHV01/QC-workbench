@@ -253,9 +253,25 @@ function rdImport(){
  }catch(error){const msg=$('rd-import-msg');if(msg)msg.textContent=error.message;}
  };
 }
+// Historical baseline supplied in the confirmed week 1 report; never infer old case counts.
+const weeklyBaseline1={
+ becawork:{coverage:95.7,auto:265,total:277},
+ becafsm:{coverage:15.2,auto:137},
+ becavms:{coverage:40},becaros:{coverage:97.5},
+ ptsc:{coverage:92.6},smartpole:{coverage:44}
+};
+function weeklyBaseline(project){
+ const name=project.baseline.name.toLocaleLowerCase('vi').replace(/[^a-z0-9]/g,'');
+ const key=name.startsWith('ptsc')?'ptsc':name.startsWith('smartpole')?'smartpole':name;
+ return weeklyBaseline1[key];
+}
+function weeklyProvisional(project,key){
+ return key==='week2'&&!/^\d+(?:[,.]\d+)?%$/.test(project.baseline.week2)&&!project.conflict&&!rdCoverageMismatch(project)&&/^\d+(?:[,.]\d+)?%$/.test(project.baseline.coverage);
+}
 function weeklyCoverage(project,key){
+ if(key==='week1'&&weeklyBaseline(project))return weeklyBaseline(project).coverage;
  if(project.conflict)return null;
- const value=project.baseline[key];
+ const value=weeklyProvisional(project,key)?project.baseline.coverage:project.baseline[key];
  if(!/^\d+(?:[,.]\d+)?%$/.test(value))return null;
  const ratio=Number(value.slice(0,-1).replace(',','.'));
  return ratio<=100?ratio:null;
@@ -282,8 +298,15 @@ function weeklyNarrative(project,key){
  else if(previous===null)progress='Tuần '+n+' ghi nhận coverage '+pct(current)+'; tuần '+(n-1)+' chưa có số liệu nên chưa xác định được mức thay đổi.';
  else {
   const delta=Math.round((current-previous)*100)/100;
-  progress='Coverage '+(delta>0?'tăng':delta<0?'giảm':'giữ nguyên')+' từ '+pct(previous)+' lên '+pct(current)+(delta?' ('+weeklyDelta(current,previous)+')':'')+'.';
+  progress='Coverage '+(delta>0?'tăng từ ':delta<0?'giảm từ ':'giữ ở ')+pct(previous)+(delta?' lên '+pct(current)+' ('+weeklyDelta(current,previous)+')':'')+'.';
  }
+ const history=weeklyBaseline(project);
+ if(n===1&&history?.auto)progress+=' Báo cáo tuần 1: '+rdFormat(history.auto)+(history.total?'/'+rdFormat(history.total):'')+' testcase automation.';
+ if(n===2&&history?.auto){
+  progress+=' Tuần 1 ghi nhận '+rdFormat(history.auto)+(history.total?'/'+rdFormat(history.total):'')+' testcase automation.';
+  if(history.total&&rdNumber(project.baseline.total)!==history.total)progress+=' Phạm vi baseline đã thay đổi; chênh lệch số case không phản ánh riêng khối lượng làm mới trong tuần.';
+ }
+ if(weeklyProvisional(project,key))progress+=' Số tuần 2 tạm lấy từ lũy kế mới nhất, chờ chốt Coverage tuần 2.';
  if(current!==null&&!project.conflict){
   const milestone=[20,40,60,80][n-1];
   progress+=' '+(current>=milestone?'Đã đạt':'Chưa đạt')+' mốc theo dõi tuần '+n+' là '+milestone+'%.';
@@ -298,7 +321,7 @@ function weeklyNarrative(project,key){
  }
  const tasks=[];
  if(project.conflict||rdCoverageMismatch(project))tasks.push('Đối soát số case và công thức tỷ lệ');
- if(current===null)tasks.push('Chốt Coverage tuần '+n);
+ if(current===null||weeklyProvisional(project,key))tasks.push('Chốt Coverage tuần '+n);
  if(n>1&&previous===null)tasks.push('Bổ sung Coverage tuần '+(n-1)+' để so sánh');
  if(current!==null&&current<80)tasks.push('Tiếp tục triển khai hướng tới mốc 80%');
  if(rdKnown(b.next))tasks.push(b.next);
@@ -306,14 +329,14 @@ function weeklyNarrative(project,key){
 }
 function reports(){
  const projects=rdFiltered(),keys=['week1','week2','week3','week4'];
- const focus=rdWeek||[...keys].reverse().find(k=>projects.some(p=>weeklyCoverage(p,k)!==null))||'week1';
+ const focus=rdWeek||'week2';
  const n=Number(focus.slice(-1)),prev=n>1?'week'+(n-1):null;
  const pct=v=>rdFormat(v)+'%';
  const measured=projects.filter(p=>weeklyCoverage(p,focus)!==null);
  const compared=measured.filter(p=>prev&&weeklyCoverage(p,prev)!==null);
  const increased=compared.filter(p=>weeklyCoverage(p,focus)>weeklyCoverage(p,prev));
  const decreased=compared.filter(p=>weeklyCoverage(p,focus)<weeklyCoverage(p,prev));
- const missing=projects.filter(p=>weeklyCoverage(p,focus)===null);
+ const missing=projects.filter(p=>weeklyCoverage(p,focus)===null||weeklyProvisional(p,focus));
  const milestone=[20,40,60,80][n-1];
  const filters='<div class="filters"><label>Kỳ báo cáo <select id="rd-week" aria-label="Tuần báo cáo">'+options(keys.map((k,i)=>[k,'Tuần '+(i+1)]),focus)+'</select></label><input id="rd-search" aria-label="Tìm dự án" placeholder="Tìm tên dự án" value="'+esc(rdQuery)+'"></div>';
  const blocks=[],lines=['# Báo cáo tiến độ triển khai Automation Test tuần '+n,'','Nguồn dữ liệu: '+rdData.date,''];
@@ -352,11 +375,11 @@ function reports(){
  section('3. Việc tiếp theo',tasks);
  lines.push('Lưu ý: Số case lũy kế không phải khối lượng hoàn thành riêng trong tuần.');
  setExport(['Dự án','Tuần trước','Tuần '+n,'Thay đổi','Kết quả trong tuần','Việc tiếp theo'],projects.map(p=>[
-  p.baseline.name,prev&&weeklyCoverage(p,prev)!==null?p.baseline[prev]:'Chưa có số liệu',weeklyCoverage(p,focus)!==null?p.baseline[focus]:'Chưa chốt',prev?weeklyDelta(weeklyCoverage(p,focus),weeklyCoverage(p,prev)):'Mốc ban đầu',weeklyNarrative(p,focus).progress,weeklyNarrative(p,focus).next
+  p.baseline.name,prev&&weeklyCoverage(p,prev)!==null?pct(weeklyCoverage(p,prev)):'Chưa có số liệu',weeklyCoverage(p,focus)!==null?pct(weeklyCoverage(p,focus))+(weeklyProvisional(p,focus)?' (tạm tính)':''):'Chưa chốt',prev?weeklyDelta(weeklyCoverage(p,focus),weeklyCoverage(p,prev)):'Mốc ban đầu',weeklyNarrative(p,focus).progress,weeklyNarrative(p,focus).next
  ]));
  exportData.markdown=lines.join('\n');
  const summary=rdMetrics([
-  ['Có số liệu so sánh',compared.length+' dự án','Đủ coverage của hai tuần liền kề'],
+  ['Có số liệu so sánh',compared.length+' dự án','Gồm số tạm tính tuần 2 nếu chưa chốt'],
   ['Có tiến triển',increased.length+' dự án','Coverage tăng so với tuần trước'],
   ['Coverage giảm',decreased.length+' dự án','Cần kiểm tra tiến độ hoặc phạm vi'],
   ['Chưa chốt tuần',missing.length+' dự án','Chưa đủ số liệu xác nhận kết quả']
@@ -366,7 +389,7 @@ function reports(){
   return [link(p.baseline.name,'rd-detail:'+p.index),esc(previous===null?'Chưa có số liệu':pct(previous)),esc(pct(current)),esc(prev?weeklyDelta(current,previous):'Mốc ban đầu'),esc((current>=milestone?'Đạt':'Chưa đạt')+' '+milestone+'%')];
  }))+'</details>':'';
  return filters+summary+panel('Báo cáo tiến độ Automation Test · Tuần '+n,
-  '<article class="weekly-report"><p>Cập nhật '+esc(rdData.date)+' · Mốc tuần '+n+': '+milestone+'% · Mục tiêu cuối kỳ: 80–90%</p>'+blocks.join('')+'<p class="compact">So sánh tuần dùng đúng hai cột Coverage liền kề. Số case lũy kế phía trên là tình hình hiện tại; Sheet chưa lưu số case và phạm vi từng tuần để xác định số testcase làm thêm.</p></article>')+detail;
+  '<article class="weekly-report"><p>Cập nhật '+esc(rdData.date)+' · Mốc tuần '+n+': '+milestone+'% · Mục tiêu cuối kỳ: 80–90%</p><p class="notice">Tuần 1 lấy từ báo cáo đã cung cấp. Tuần 2 dùng Coverage tuần 2 trên Sheet; nếu chưa chốt, dùng lũy kế hiện tại và ghi rõ tạm tính. Các kỳ khác chỉ dùng số liệu đã ghi theo tuần.</p>'+blocks.join('')+'<p class="compact">Số case lũy kế là tình hình hiện tại. Khi baseline thay đổi, không coi chênh lệch số case hoặc coverage là năng suất tuần trên cùng phạm vi.</p></article>')+detail;
 }
 
 render();
