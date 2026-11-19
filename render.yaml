@@ -2,19 +2,15 @@ services:
   - type: web
     name: qc-workbench
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /healthz
-    disk:
-      name: qc-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 22
       - key: DATA_DIR
-        value: /var/data
+        value: /tmp/qc-data
       - key: GOOGLE_SHEET_ID
         value: 1f1vOMxt6fHW-auk2xxiq5ruejH6PXK_gWs1jexW7wyc
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
