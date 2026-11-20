@@ -2,8 +2,8 @@
 const FEATURE_WEEKLY_REPORT = false;
 const $ = id => document.getElementById(id);
 const pages = [
- ['rd','▤','Quản lý dự án'],
- ['rd-report','▥','Báo cáo Automation'],
+ ['rd','▤','Các dự án đang triển khai automation'],
+ ['rd-report','▥','Tất cả dự án phòng RD'],
  ...(FEATURE_WEEKLY_REPORT ? [['reports','◫','Báo cáo tuần']] : []),
 ];
 let page='rd',exportData=null;
@@ -393,7 +393,7 @@ function rdProjects(){
  };
  const rows=entries.map(p=>renderRow(p));
  const resetLink='<a href="#" data-action="rd-reset-sort" class="muted" style="font-size:12px">Đặt lại thứ tự mặc định</a>';
- const footer='<div class="resultline"><b>Hiển thị '+entries.length+' / '+allCount+' dự án</b> · '+resetLink+'</div><p class="muted compact" style="margin-top:8px">Xem các dự án chưa triển khai trong <a href="#" data-action="go:rd-report">Báo cáo Automation</a>.</p>';
+ const footer='<div class="resultline"><b>Hiển thị '+entries.length+' / '+allCount+' dự án</b> · '+resetLink+'</div><p class="muted compact" style="margin-top:8px">Xem các dự án chưa triển khai trong <a href="#" data-action="go:rd-report">Tất cả dự án phòng RD</a>.</p>';
  return rdFilterMarkup(false)+kpiHtml+footer+panel('Danh sách dự án',table(headers,rows,'project-table'));
 }
 
